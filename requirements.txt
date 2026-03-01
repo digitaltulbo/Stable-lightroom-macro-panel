@@ -1,0 +1,22 @@
+# Lightroom Macro Panel - Required Python Packages
+# 설치: pip install -r requirements.txt
+
+# GUI 프레임워크
+PySide6>=6.5.0
+
+# Windows API 제어
+pywin32>=306
+
+# 키보드 입력 시뮬레이션
+keyboard>=0.13.5
+
+# 프로세스 관리
+psutil>=5.9.0
+
+# 사운드 재생
+pygame>=2.5.0
+
+# Google Calendar 연동
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1

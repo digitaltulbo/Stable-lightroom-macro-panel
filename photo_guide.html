@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Studio Saeng-il | 사진 인화 가이드</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4A6741; /* Sage Green */
+            --accent: #D4E2D4;
+            --dark: #2C3327;
+            --background: #F9FBFA;
+            --white: #FFFFFF;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background);
+            color: var(--dark);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Noto+Serif+KR', serif;
+        }
+
+        header {
+            height: 40vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--background) 100%);
+            text-align: center;
+            padding: 20px;
+        }
+
+        header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            color: var(--primary);
+        }
+
+        header p {
+            font-size: 1.2rem;
+            color: var(--dark);
+            opacity: 0.8;
+            letter-spacing: 2px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: -50px auto 100px;
+            padding: 0 20px;
+        }
+
+        .step-card {
+            background: var(--white);
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 60px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.8s ease-out;
+        }
+
+        .step-card.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .step-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .step-number {
+            background: var(--primary);
+            color: var(--white);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .step-title {
+            font-size: 1.8rem;
+            color: var(--primary);
+        }
+
+        .step-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            align-items: center;
+        }
+
+        @media (max-width: 768px) {
+            .step-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .step-text {
+            font-size: 1.1rem;
+        }
+
+        .step-text b {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .step-image {
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            background: #eee;
+        }
+
+        .step-image img {
+            width: 100%;
+            display: block;
+            transition: transform 0.5s ease;
+        }
+
+        .step-image:hover img {
+            transform: scale(1.05);
+        }
+
+        .keyboard-shortcut {
+            display: inline-block;
+            background: #eee;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-family: monospace;
+            border-bottom: 2px solid #ccc;
+        }
+
+        footer {
+            text-align: center;
+            padding: 50px;
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .highlight-box {
+            background: var(--accent);
+            padding: 15px;
+            border-left: 4px solid var(--primary);
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Studio Saeng-il</h1>
+        <p>SELF PHOTO STUDIO</p>
+    </header>
+
+    <div class="container" id="steps-container">
+        
+        <!-- Step 1 -->
+        <div class="step-card">
+            <div class="step-header">
+                <div class="step-number">1</div>
+                <h2 class="step-title">편집 모드 접속</h2>
+            </div>
+            <div class="step-content">
+                <div class="step-text">
+                    <p>인화할 사진을 열고 상단 바의 <b>[이미지 편집]</b> 아이콘을 클릭하세요.</p>
+                    <p style="margin-top:15px;">단축키 <span class="keyboard-shortcut">Ctrl + E</span> 를 누르면 더 빠르게 편집할 수 있습니다.</p>
+                </div>
+                <div class="step-image">
+                    <img src="C:/Users/zepss/.gemini/antigravity/brain/22b70fbb-2ef5-4247-a529-af91e29ced71/photos_app_step1_edit_1767620725932.png" alt="Step 1">
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step-card">
+            <div class="step-header">
+                <div class="step-number">2</div>
+                <h2 class="step-title">5:7 비율 설정</h2>
+            </div>
+            <div class="step-content">
+                <div class="step-text">
+                    <p>인화지 크기에 맞추기 위해 상단의 <b>[비율]</b> 메뉴를 클릭한 후 <b>[5:7]</b> 또는 <b>[7:5]</b>를 선택하세요.</p>
+                    <div class="highlight-box">
+                        사각 영역의 모서리를 드래그하면 5:7 비율이 유지되면서 크기가 조절됩니다.
+                    </div>
+                </div>
+                <div class="step-image">
+                    <img src="C:/Users/zepss/.gemini/antigravity/brain/22b70fbb-2ef5-4247-a529-af91e29ced71/photos_app_step2_ratio_1767620745495.png" alt="Step 2">
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step-card">
+            <div class="step-header">
+                <div class="step-number">3</div>
+                <h2 class="step-title">구도 및 저장</h2>
+            </div>
+            <div class="step-content">
+                <div class="step-text">
+                    <p>조절된 영역 안으로 얼굴이 중앙에 오도록 사진 위치를 맞춘 후, 하단의 <b>[저장]</b> 버튼을 누르면 인화 준비 완료!</p>
+                    <p style="margin-top:15px;">3분할 선(그리드)을 참고하면 안정적인 구도를 잡을 수 있습니다.</p>
+                </div>
+                <div class="step-image">
+                    <img src="C:/Users/zepss/.gemini/antigravity/brain/22b70fbb-2ef5-4247-a529-af91e29ced71/photos_app_step3_save_1767620795459.png" alt="Step 3">
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <footer>
+        <p>&copy; 2026 Studio Saeng-il. All rights reserved.</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.step-card');
+            
+            const observerOptions = {
+                threshold: 0.2
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('active');
+                    }
+                });
+            }, observerOptions);
+
+            cards.forEach(card => {
+                observer.observe(card);
+            });
+        });
+    </script>
+</body>
+</html>

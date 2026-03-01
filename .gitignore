@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.spec
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Credentials (Google Calendar OAuth)
+credentials.json
+token.json
+
+# Logs
+logs/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Backup files
+*_backup.*
+
+# Claude Code
+.claude/
