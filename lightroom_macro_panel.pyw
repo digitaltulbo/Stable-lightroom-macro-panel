@@ -46,7 +46,7 @@ try:
         QGraphicsDropShadowEffect, QDialog, QGridLayout, QStackedWidget
     )
     from PySide6.QtCore import (
-        Qt, QTimer, Signal, QThread, QSize, QPropertyAnimation,
+        Qt, QTimer, Signal, QThread, QPropertyAnimation,
         QEasingCurve, Property, QRect, QUrl, QByteArray, QPoint
     )
     from PySide6.QtGui import (
@@ -1079,54 +1079,123 @@ class AppIcon(QWidget):
 # =============================================================================
 # 프리미엄 UI 위젯 (Apple Style)
 # =============================================================================
-class PulseButton(QPushButton):
-    """은은하게 숨쉬는(Pulse) 애니메이션이 적용된 프리미엄 버튼"""
+class StartShootingButton(QPushButton):
+    """촬영 시작 버튼 - Apple 스타일 대형 터치 버튼
+
+    QPainter로 직접 렌더링하여 SVG 의존성 없이 확실하게 표시.
+    은은한 pulse 애니메이션 + 카메라 아이콘 + "촬영 시작" 텍스트 통합.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._glow_radius = 0
-        self._glow_color = QColor(255, 255, 255, 15)  # 아주 연한 흰색 발광
-        
-        # 애니메이션 설정 (0 -> 15 -> 0 반복)
-        self.anim = QPropertyAnimation(self, b"glowRadius")
-        self.anim.setDuration(2500)  # 2.5초 주기 (느리고 고급스러운 호흡)
-        self.anim.setStartValue(0)
-        self.anim.setKeyValueAt(0.5, 15)
-        self.anim.setEndValue(0)
+        self._pulse_opacity = 0.0
+
+        # Pulse 애니메이션 (테두리 밝기 호흡)
+        self.anim = QPropertyAnimation(self, b"pulseOpacity")
+        self.anim.setDuration(3000)
+        self.anim.setStartValue(0.0)
+        self.anim.setKeyValueAt(0.5, 1.0)
+        self.anim.setEndValue(0.0)
         self.anim.setEasingCurve(QEasingCurve.InOutSine)
-        self.anim.setLoopCount(-1)  # 무한 반복
+        self.anim.setLoopCount(-1)
         self.anim.start()
 
-    def get_glow_radius(self):
-        return self._glow_radius
+    def get_pulse_opacity(self):
+        return self._pulse_opacity
 
-    def set_glow_radius(self, radius):
-        self._glow_radius = radius
+    def set_pulse_opacity(self, val):
+        self._pulse_opacity = val
         self.update()
 
-    glowRadius = Property(float, get_glow_radius, set_glow_radius)
+    pulseOpacity = Property(float, get_pulse_opacity, set_pulse_opacity)
 
     def paintEvent(self, event):
-        # 1. 배경 발광 그리기
-        if self._glow_radius > 0:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.Antialiasing)
-            
-            rect = self.rect()
-            center = rect.center()
-            # 버튼 크기(180)보다 살짝 더 큰 배경 영역
-            radius = (rect.width() / 2) + self._glow_radius
-            
-            gradient = QRadialGradient(center, radius)
-            gradient.setColorAt(0.8, self._glow_color)
-            gradient.setColorAt(1.0, QColor(255, 255, 255, 0))
-            
-            painter.setBrush(QBrush(gradient))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(center, radius, radius)
-            painter.end()
-            
-        # 2. 기본 버튼 스타일 그리기 (CSS 적용부)
-        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        w, h = self.width(), self.height()
+        cx, cy = w / 2, h / 2
+
+        # ── 1. 외곽 글로우 (pulse) ──
+        if self._pulse_opacity > 0:
+            glow_r = min(w, h) / 2 + 20
+            grad = QRadialGradient(cx, cy, glow_r)
+            alpha = int(25 * self._pulse_opacity)
+            grad.setColorAt(0.6, QColor(255, 255, 255, alpha))
+            grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+            p.setBrush(QBrush(grad))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(int(cx - glow_r), int(cy - glow_r),
+                          int(glow_r * 2), int(glow_r * 2))
+
+        # ── 2. 메인 원형 배경 ──
+        btn_r = min(w, h) / 2 - 25
+        border_alpha = int(40 + 30 * self._pulse_opacity)
+
+        # 배경 (반투명 다크)
+        p.setBrush(QBrush(QColor(255, 255, 255, 12)))
+        p.setPen(QPen(QColor(255, 255, 255, border_alpha), 2.0))
+        p.drawEllipse(int(cx - btn_r), int(cy - btn_r),
+                      int(btn_r * 2), int(btn_r * 2))
+
+        # ── 3. 카메라 아이콘 (QPainter로 직접 그리기) ──
+        icon_color = QColor(255, 255, 255, 210)
+        p.setPen(QPen(icon_color, 3.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.setBrush(Qt.NoBrush)
+
+        # 카메라 본체 비율 계산 (중앙 위쪽에 배치)
+        icon_w = 80
+        icon_h = 56
+        ix = cx - icon_w / 2
+        iy = cy - 50  # 중앙보다 위
+
+        # 카메라 본체 (둥근 사각형)
+        body_path = QPainterPath()
+        body_path.addRoundedRect(ix, iy + 14, icon_w, icon_h - 14, 10, 10)
+        p.drawPath(body_path)
+
+        # 카메라 상단 돌출부 (렌즈 하우징)
+        top_path = QPainterPath()
+        top_path.moveTo(ix + 22, iy + 14)
+        top_path.lineTo(ix + 28, iy + 4)
+        top_path.lineTo(ix + 52, iy + 4)
+        top_path.lineTo(ix + 58, iy + 14)
+        p.drawPath(top_path)
+
+        # 렌즈 (원)
+        lens_cx = cx
+        lens_cy = iy + 36
+        p.drawEllipse(int(lens_cx - 14), int(lens_cy - 14), 28, 28)
+
+        # 렌즈 내부 점
+        p.setBrush(QBrush(icon_color))
+        p.setPen(Qt.NoPen)
+        p.drawEllipse(int(lens_cx - 5), int(lens_cy - 5), 10, 10)
+
+        # ── 4. "촬영 시작" 텍스트 ──
+        p.setPen(QColor(255, 255, 255, 200))
+
+        main_font = QFont('Apple SD Gothic Neo', 22)
+        main_font.setStyleStrategy(QFont.PreferAntialias)
+        if not QFontDatabase.hasFamily('Apple SD Gothic Neo'):
+            main_font = QFont('Malgun Gothic', 22)
+        main_font.setWeight(QFont.DemiBold)
+        main_font.setLetterSpacing(QFont.AbsoluteSpacing, 6)
+        p.setFont(main_font)
+
+        text_y = cy + 30
+        text_rect = QRect(0, int(text_y), w, 40)
+        p.drawText(text_rect, Qt.AlignCenter, "촬영 시작")
+
+        # ── 5. 안내 문구 ──
+        p.setPen(QColor(255, 255, 255, 60))
+        sub_font = QFont('Malgun Gothic', 11)
+        sub_font.setWeight(QFont.Normal)
+        p.setFont(sub_font)
+
+        sub_rect = QRect(0, int(text_y + 44), w, 30)
+        p.drawText(sub_rect, Qt.AlignCenter, "터치하여 촬영을 시작합니다")
+
+        p.end()
 
 
 # =============================================================================
@@ -1420,70 +1489,14 @@ class MainWindow(QMainWindow):
 
         layout.addStretch(2)
 
-        # ── 중앙: 촬영 시작 버튼 (대형 원형) ──
-        btn_container = QWidget()
-        btn_layout = QVBoxLayout(btn_container)
-        btn_layout.setAlignment(Qt.AlignCenter)
-        btn_layout.setSpacing(32)
-
-        self.start_button = PulseButton()
-        self.start_button.setFixedSize(280, 280)
+        # ── 중앙: 촬영 시작 버튼 (카메라 아이콘 + 텍스트 통합) ──
+        self.start_button = StartShootingButton()
+        self.start_button.setFixedSize(340, 380)
         self.start_button.setCursor(Qt.PointingHandCursor)
         self.start_button.clicked.connect(self._on_start_clicked)
-        self.start_button.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: 2px solid rgba(255, 255, 255, 0.15);
-                border-radius: 140px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.12);
-                border: 2px solid rgba(255, 255, 255, 0.3);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: 2px solid rgba(255, 255, 255, 0.1);
-            }
-        """)
+        self.start_button.setStyleSheet("background: transparent; border: none;")
 
-        # 카메라 아이콘 (Play 대신 카메라로 직관성 향상)
-        camera_svg = IconSVG.CAMERA_LOGO.replace('stroke-width="1.2"', 'stroke-width="0.8"').replace('currentColor', 'rgba(255, 255, 255, 0.85)')
-        renderer = QSvgRenderer(camera_svg.encode())
-        pixmap = QPixmap(96, 96)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        renderer.render(painter)
-        painter.end()
-        self.start_button.setIcon(pixmap)
-        self.start_button.setIconSize(QSize(96, 96))
-
-        btn_layout.addWidget(self.start_button, alignment=Qt.AlignCenter)
-
-        # "촬영 시작" 텍스트 (크게)
-        start_label = QLabel("촬영 시작")
-        start_label.setAlignment(Qt.AlignCenter)
-        start_label.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.6);
-            font-size: 24px;
-            font-weight: 500;
-            letter-spacing: 8px;
-            font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', 'SF Pro Display', sans-serif;
-            margin-left: 8px;
-        """)
-        btn_layout.addWidget(start_label)
-
-        # 안내 문구
-        guide_label = QLabel("버튼을 터치하면 촬영이 준비됩니다")
-        guide_label.setAlignment(Qt.AlignCenter)
-        guide_label.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.2);
-            font-size: 14px;
-            font-weight: 400;
-        """)
-        btn_layout.addWidget(guide_label)
-
-        layout.addWidget(btn_container)
+        layout.addWidget(self.start_button, alignment=Qt.AlignCenter)
         layout.addStretch(3)
 
         # ── 하단 상태바 ──
