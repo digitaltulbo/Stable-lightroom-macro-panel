@@ -434,6 +434,58 @@ class WindowsController:
         except:
             return False
 
+    def is_window_responding(self, hwnd: int, timeout_ms: int = 3000) -> bool:
+        """윈도우가 응답하는지 확인 (프리징 감지)
+
+        SendMessageTimeout으로 WM_NULL을 보내 응답 여부 확인.
+        프리징 상태면 타임아웃되어 False 반환.
+        """
+        if not WINDOWS_AVAILABLE or hwnd is None:
+            return False
+        try:
+            SMTO_ABORTIFHUNG = 0x0002
+            result = ctypes.windll.user32.SendMessageTimeoutW(
+                hwnd, 0x0000,  # WM_NULL
+                0, 0,
+                SMTO_ABORTIFHUNG,
+                timeout_ms,
+                ctypes.byref(ctypes.c_ulong(0))
+            )
+            return result != 0
+        except Exception:
+            return False
+
+    def wait_for_lightroom_responsive(self, max_wait_seconds: int = 120) -> bool:
+        """Lightroom이 프리징에서 풀리고 응답할 때까지 대기
+
+        단순 delay 대신 실제 응답 상태를 확인하므로,
+        저사양 PC에서도 정확한 타이밍에 키 입력 가능.
+        """
+        if not WINDOWS_AVAILABLE:
+            return True
+
+        title_contains = self.config.get('lightroom_window_title_contains', 'Lightroom')
+        start_time = time.time()
+
+        while (time.time() - start_time) < max_wait_seconds:
+            hwnd = self.find_window_by_title(title_contains)
+            if not hwnd:
+                self.log.log_warning("Lightroom window not found, waiting...")
+                time.sleep(2)
+                continue
+
+            if self.is_window_responding(hwnd, timeout_ms=3000):
+                elapsed = round(time.time() - start_time, 1)
+                self.log.log_action("LIGHTROOM_RESPONSIVE",
+                                  status="ready", elapsed_sec=elapsed)
+                return True
+
+            self.log.log_warning("Lightroom not responding (freezing), waiting...")
+            time.sleep(2)
+
+        self.log.log_error(f"Lightroom not responsive after {max_wait_seconds}s")
+        return False
+
     def wait_for_lightroom_focus(self, max_retries: int = 10) -> bool:
         if not WINDOWS_AVAILABLE:
             return True
@@ -475,30 +527,43 @@ class MacroActions:
         self.win = win_controller
 
     def action_start_tethering(self) -> bool:
-        """테더링 촬영 시작 - 완전 자동화"""
+        """테더링 촬영 시작 - 완전 자동화 (프리징 대응)"""
         if not self.win.ensure_lightroom_running():
             return False
 
+        # 1단계: Lightroom이 프리징에서 풀릴 때까지 대기
+        self.log.log_action("TETHER_PREP", status="waiting_for_responsive")
+        if not self.win.wait_for_lightroom_responsive(max_wait_seconds=120):
+            self.log.log_error("Cannot start tethering: Lightroom not responsive")
+            return False
+
+        # 2단계: 포커스 확보
         if not self.win.wait_for_lightroom_focus():
             self.log.log_error("Cannot start tethering: Lightroom is not in foreground")
             return False
 
-        time.sleep(2)
-        self.win.activate_lightroom()
+        # 3단계: 한 번 더 응답 확인 후 키 입력 시작
         time.sleep(1)
+        self.win.activate_lightroom()
+        time.sleep(0.5)
+
+        # 응답 재확인 (activate 직후 프리징 가능)
+        if not self.win.wait_for_lightroom_responsive(max_wait_seconds=30):
+            self.log.log_error("Lightroom froze again after activation")
+            return False
 
         # 파일 메뉴에서 테더링 다이얼로그 열기
         keyboard.send('alt+f')
-        time.sleep(0.5)
+        time.sleep(1.0)  # 메뉴 열림 대기 (저사양 대응)
 
         for _ in range(8):
             keyboard.send('down')
-            time.sleep(0.1)
+            time.sleep(0.15)
 
         keyboard.send('right')
-        time.sleep(0.3)
-        keyboard.send('enter')
         time.sleep(0.5)
+        keyboard.send('enter')
+        time.sleep(1.0)  # 다이얼로그 열림 대기
 
         # 세션 정보 입력
         session_name = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -1331,7 +1396,7 @@ class MainWindow(QMainWindow):
         self.stacked.setCurrentWidget(self.idle_page)
 
     def _create_idle_page(self) -> QWidget:
-        """화면 1: IDLE - 심플한 촬영 시작 버튼 (Apple Style)"""
+        """화면 1: IDLE - 촬영 시작 (Apple Style, 대형 버튼)"""
         page = QWidget()
         page.setStyleSheet("background-color: #000000;")
 
@@ -1345,68 +1410,78 @@ class MainWindow(QMainWindow):
         header_label = QLabel(studio_name.upper())
         header_label.setAlignment(Qt.AlignCenter)
         header_label.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.25);
-            font-size: 13px;
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 14px;
             font-weight: 600;
-            letter-spacing: 8px;
-            padding-top: 40px;
+            letter-spacing: 10px;
+            padding-top: 50px;
         """)
         layout.addWidget(header_label)
 
         layout.addStretch(2)
 
-        # ── 중앙: 촬영 시작 버튼 (원형, Apple Style) ──
+        # ── 중앙: 촬영 시작 버튼 (대형 원형) ──
         btn_container = QWidget()
         btn_layout = QVBoxLayout(btn_container)
         btn_layout.setAlignment(Qt.AlignCenter)
-        btn_layout.setSpacing(24)
+        btn_layout.setSpacing(32)
 
         self.start_button = PulseButton()
-        self.start_button.setFixedSize(180, 180)
+        self.start_button.setFixedSize(280, 280)
         self.start_button.setCursor(Qt.PointingHandCursor)
         self.start_button.clicked.connect(self._on_start_clicked)
         self.start_button.setStyleSheet("""
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 90px;
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 2px solid rgba(255, 255, 255, 0.15);
+                border-radius: 140px;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.3);
+                background-color: rgba(255, 255, 255, 0.12);
+                border: 2px solid rgba(255, 255, 255, 0.3);
             }
             QPushButton:pressed {
                 background-color: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 2px solid rgba(255, 255, 255, 0.1);
             }
         """)
 
-        # Play 아이콘
-        play_svg = IconSVG.PLAY.replace('stroke-width="1.2"', 'stroke-width="1.0"').replace('currentColor', 'rgba(255, 255, 255, 0.9)')
-        renderer = QSvgRenderer(play_svg.encode())
-        pixmap = QPixmap(60, 60)
+        # 카메라 아이콘 (Play 대신 카메라로 직관성 향상)
+        camera_svg = IconSVG.CAMERA_LOGO.replace('stroke-width="1.2"', 'stroke-width="0.8"').replace('currentColor', 'rgba(255, 255, 255, 0.85)')
+        renderer = QSvgRenderer(camera_svg.encode())
+        pixmap = QPixmap(96, 96)
         pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
         renderer.render(painter)
         painter.end()
         self.start_button.setIcon(pixmap)
-        self.start_button.setIconSize(QSize(60, 60))
+        self.start_button.setIconSize(QSize(96, 96))
 
         btn_layout.addWidget(self.start_button, alignment=Qt.AlignCenter)
 
-        # "촬영 시작" 텍스트
+        # "촬영 시작" 텍스트 (크게)
         start_label = QLabel("촬영 시작")
         start_label.setAlignment(Qt.AlignCenter)
         start_label.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 15px;
-            font-weight: 400;
-            letter-spacing: 6px;
-            font-family: 'SF Pro Display', 'Apple SD Gothic Neo', sans-serif;
-            margin-left: 6px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 24px;
+            font-weight: 500;
+            letter-spacing: 8px;
+            font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', 'SF Pro Display', sans-serif;
+            margin-left: 8px;
         """)
         btn_layout.addWidget(start_label)
+
+        # 안내 문구
+        guide_label = QLabel("버튼을 터치하면 촬영이 준비됩니다")
+        guide_label.setAlignment(Qt.AlignCenter)
+        guide_label.setStyleSheet("""
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 14px;
+            font-weight: 400;
+        """)
+        btn_layout.addWidget(guide_label)
 
         layout.addWidget(btn_container)
         layout.addStretch(3)
