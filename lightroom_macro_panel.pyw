@@ -2118,14 +2118,46 @@ class MainWindow(QMainWindow):
         self.switch_state(STATE_EXPORT_READY)
 
     def _on_export_clicked(self):
-        """내보내기 버튼 → Lightroom 이전 설정 내보내기 (Ctrl+A → Ctrl+Alt+Shift+E)"""
+        """내보내기 버튼 → Lightroom 내보내기 + 최소화 + 폴더 열기"""
         if self.current_worker is not None and self.current_worker.isRunning():
             return
 
         self.export_status_label.setText("내보내기 진행 중...")
         self.export_button.setEnabled(False)
 
-        self._run_action_in_thread(self.actions.action_export_all, "내보내기")
+        def export_and_open_folder():
+            # 1. Lightroom에서 전체 선택 + 이전 설정 내보내기
+            result = self.actions.action_export_all()
+
+            if result:
+                time.sleep(1)  # 내보내기 명령이 Lightroom에 전달될 시간
+
+                # 2. Lightroom 최소화
+                if WINDOWS_AVAILABLE:
+                    lr_title = self.config.get('lightroom_window_title_contains', 'Lightroom')
+
+                    def enum_callback(h, _):
+                        if win32gui.IsWindowVisible(h):
+                            title = win32gui.GetWindowText(h)
+                            if lr_title.lower() in title.lower():
+                                win32gui.ShowWindow(h, win32con.SW_MINIMIZE)
+                        return True
+
+                    win32gui.EnumWindows(enum_callback, None)
+
+                # 3. 내보내기 폴더 열기
+                export_folder = self.config.get('export_target_folder', 'Desktop\\내보내기')
+                desktop_path = os.path.join(os.path.expanduser('~'), 'Desktop')
+                full_path = os.path.join(
+                    desktop_path,
+                    export_folder.replace('Desktop\\', '').replace('Desktop/', '')
+                )
+                os.makedirs(full_path, exist_ok=True)
+                os.startfile(full_path)
+
+            return result
+
+        self._run_action_in_thread(export_and_open_folder, "내보내기")
 
     def _run_action_in_thread(self, func, action_name):
         """액션을 스레드에서 실행"""
