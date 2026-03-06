@@ -1199,6 +1199,123 @@ class StartShootingButton(QPushButton):
         p.end()
 
 
+class ExportButton(QPushButton):
+    """내보내기 버튼 - QPainter로 폴더+화살표 아이콘 + 텍스트 직접 렌더링"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pulse_opacity = 0.0
+
+        self.anim = QPropertyAnimation(self, b"pulseOpacity")
+        self.anim.setDuration(3000)
+        self.anim.setStartValue(0.0)
+        self.anim.setKeyValueAt(0.5, 1.0)
+        self.anim.setEndValue(0.0)
+        self.anim.setEasingCurve(QEasingCurve.InOutSine)
+        self.anim.setLoopCount(-1)
+        self.anim.start()
+
+    def get_pulse_opacity(self):
+        return self._pulse_opacity
+
+    def set_pulse_opacity(self, val):
+        self._pulse_opacity = val
+        self.update()
+
+    pulseOpacity = Property(float, get_pulse_opacity, set_pulse_opacity)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        w, h = self.width(), self.height()
+        cx, cy = w / 2, h / 2
+
+        # ── 1. 외곽 글로우 (pulse) ──
+        if self._pulse_opacity > 0:
+            glow_r = min(w, h) / 2 + 20
+            grad = QRadialGradient(cx, cy, glow_r)
+            alpha = int(20 * self._pulse_opacity)
+            grad.setColorAt(0.6, QColor(10, 132, 255, alpha))
+            grad.setColorAt(1.0, QColor(10, 132, 255, 0))
+            p.setBrush(QBrush(grad))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(int(cx - glow_r), int(cy - glow_r),
+                          int(glow_r * 2), int(glow_r * 2))
+
+        # ── 2. 메인 원형 배경 ──
+        btn_r = min(w, h) / 2 - 25
+        border_alpha = int(40 + 30 * self._pulse_opacity)
+
+        p.setBrush(QBrush(QColor(10, 132, 255, 15)))
+        p.setPen(QPen(QColor(10, 132, 255, border_alpha), 2.0))
+        p.drawEllipse(int(cx - btn_r), int(cy - btn_r),
+                      int(btn_r * 2), int(btn_r * 2))
+
+        # ── 3. 내보내기 아이콘 (폴더 + 위쪽 화살표) ──
+        icon_color = QColor(10, 132, 255, 210)
+        p.setPen(QPen(icon_color, 3.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.setBrush(Qt.NoBrush)
+
+        # 아이콘 기준점 (중앙 위쪽)
+        ix = cx - 40
+        iy = cy - 55
+
+        # 폴더 본체
+        folder = QPainterPath()
+        folder.moveTo(ix, iy + 18)
+        folder.lineTo(ix, iy + 60)
+        folder.lineTo(ix + 80, iy + 60)
+        folder.lineTo(ix + 80, iy + 18)
+        folder.lineTo(ix + 50, iy + 18)
+        folder.lineTo(ix + 44, iy + 8)
+        folder.lineTo(ix + 16, iy + 8)
+        folder.lineTo(ix + 10, iy + 18)
+        folder.closeSubpath()
+        p.drawPath(folder)
+
+        # 위쪽 화살표 (내보내기 상징)
+        arrow_cx = cx
+        arrow_top = iy + 24
+        arrow_bot = iy + 50
+
+        # 화살표 줄기
+        p.drawLine(int(arrow_cx), int(arrow_top), int(arrow_cx), int(arrow_bot))
+
+        # 화살표 머리
+        arrow_head = QPainterPath()
+        arrow_head.moveTo(arrow_cx - 10, arrow_top + 10)
+        arrow_head.lineTo(arrow_cx, arrow_top)
+        arrow_head.lineTo(arrow_cx + 10, arrow_top + 10)
+        p.drawPath(arrow_head)
+
+        # ── 4. "내보내기" 텍스트 ──
+        p.setPen(QColor(10, 132, 255, 200))
+
+        main_font = QFont('Apple SD Gothic Neo', 22)
+        main_font.setStyleStrategy(QFont.PreferAntialias)
+        if not QFontDatabase.hasFamily('Apple SD Gothic Neo'):
+            main_font = QFont('Malgun Gothic', 22)
+        main_font.setWeight(QFont.DemiBold)
+        main_font.setLetterSpacing(QFont.AbsoluteSpacing, 6)
+        p.setFont(main_font)
+
+        text_y = cy + 30
+        text_rect = QRect(0, int(text_y), w, 40)
+        p.drawText(text_rect, Qt.AlignCenter, "내보내기")
+
+        # ── 5. 안내 문구 ──
+        p.setPen(QColor(255, 255, 255, 60))
+        sub_font = QFont('Malgun Gothic', 11)
+        sub_font.setWeight(QFont.Normal)
+        p.setFont(sub_font)
+
+        sub_rect = QRect(0, int(text_y + 44), w, 30)
+        p.drawText(sub_rect, Qt.AlignCenter, "사진을 바탕화면으로 내보냅니다")
+
+        p.end()
+
+
 # =============================================================================
 # 상태 표시 위젯
 # =============================================================================
@@ -1831,17 +1948,50 @@ class MainWindow(QMainWindow):
         return page
 
     def _create_export_page(self) -> QWidget:
-        """화면 3: EXPORT_READY - 내보내기/압축/종료 (Phase 4 구현 예정)"""
+        """화면 3: EXPORT_READY - 촬영 완료 + 내보내기 버튼"""
         page = QWidget()
         page.setStyleSheet("background-color: #000000;")
 
         layout = QVBoxLayout(page)
-        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        placeholder = QLabel("내보내기 화면 (Phase 4)")
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setStyleSheet("color: #AEAEB2; font-size: 24px;")
-        layout.addWidget(placeholder)
+        # ── 상단: 촬영 완료 메시지 ──
+        layout.addStretch(2)
+
+        complete_label = QLabel("촬영이 완료되었습니다")
+        complete_label.setAlignment(Qt.AlignCenter)
+        complete_label.setStyleSheet("""
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 16px;
+            font-weight: 400;
+            letter-spacing: 4px;
+        """)
+        layout.addWidget(complete_label)
+
+        layout.addSpacing(40)
+
+        # ── 중앙: 내보내기 버튼 (QPainter 커스텀) ──
+        self.export_button = ExportButton()
+        self.export_button.setFixedSize(340, 380)
+        self.export_button.setCursor(Qt.PointingHandCursor)
+        self.export_button.clicked.connect(self._on_export_clicked)
+        self.export_button.setStyleSheet("background: transparent; border: none;")
+        layout.addWidget(self.export_button, alignment=Qt.AlignCenter)
+
+        layout.addStretch(1)
+
+        # ── 하단: 내보내기 상태 표시 ──
+        self.export_status_label = QLabel("")
+        self.export_status_label.setAlignment(Qt.AlignCenter)
+        self.export_status_label.setStyleSheet("""
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 13px;
+            padding-bottom: 40px;
+        """)
+        layout.addWidget(self.export_status_label)
+
+        layout.addStretch(1)
 
         return page
 
@@ -1967,6 +2117,16 @@ class MainWindow(QMainWindow):
 
         self.switch_state(STATE_EXPORT_READY)
 
+    def _on_export_clicked(self):
+        """내보내기 버튼 → Lightroom 이전 설정 내보내기 (Ctrl+A → Ctrl+Alt+Shift+E)"""
+        if self.current_worker is not None and self.current_worker.isRunning():
+            return
+
+        self.export_status_label.setText("내보내기 진행 중...")
+        self.export_button.setEnabled(False)
+
+        self._run_action_in_thread(self.actions.action_export_all, "내보내기")
+
     def _run_action_in_thread(self, func, action_name):
         """액션을 스레드에서 실행"""
         if self.current_worker is not None and self.current_worker.isRunning():
@@ -1983,6 +2143,19 @@ class MainWindow(QMainWindow):
         """액션 완료 핸들러"""
         if not success:
             QMessageBox.warning(self, "오류", message)
+
+        # 내보내기 완료 시 상태 업데이트
+        if self._current_state == STATE_EXPORT_READY and hasattr(self, 'export_status_label'):
+            if success:
+                self.export_status_label.setText("내보내기가 완료되었습니다")
+                self.export_status_label.setStyleSheet("""
+                    color: rgba(48, 209, 88, 0.7);
+                    font-size: 13px;
+                    padding-bottom: 40px;
+                """)
+            else:
+                self.export_status_label.setText("내보내기 실패 - 다시 시도해주세요")
+                self.export_button.setEnabled(True)
 
         self.current_worker = None
         self.activateWindow()
