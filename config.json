@@ -128,5 +128,11 @@
         "app_launch_wait_ms": 5000,
         "window_activation_wait_ms": 500,
         "between_key_default_ms": 100
+    },
+    "home_assistant": {
+        "url": "http://homeassistant.local:8123",
+        "token": "YOUR_LONG_LIVED_ACCESS_TOKEN",
+        "light_entity": "switch.studio_light",
+        "camera_entity": "switch.studio_camera"
     }
 }

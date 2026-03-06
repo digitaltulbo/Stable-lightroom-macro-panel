@@ -17,6 +17,7 @@ import sys
 import os
 import json
 import time
+import threading
 import subprocess
 import logging
 import shutil
@@ -1214,6 +1215,86 @@ class StatusWidget(QLabel):
 
 
 # =============================================================================
+# Home Assistant 연동
+# =============================================================================
+class HomeAssistantController:
+    """Home Assistant REST API를 통한 스마트 스위치 제어
+
+    config.json의 home_assistant 섹션에서 설정을 읽어옵니다:
+      {
+        "home_assistant": {
+          "url": "http://homeassistant.local:8123",
+          "token": "YOUR_LONG_LIVED_ACCESS_TOKEN",
+          "light_entity": "switch.studio_light",
+          "camera_entity": "switch.studio_camera"
+        }
+      }
+    """
+
+    def __init__(self, config: 'ConfigManager', log_manager: 'LogManager' = None):
+        self.log = log_manager
+        ha_config = config.get('home_assistant', {})
+        self._url = ha_config.get('url', '').rstrip('/')
+        self._token = ha_config.get('token', '')
+        self._light_entity = ha_config.get('light_entity', '')
+        self._camera_entity = ha_config.get('camera_entity', '')
+        self._available = bool(self._url and self._token)
+
+        if not self._available and self.log:
+            self.log.log_warning("Home Assistant 설정 없음 (config.json → home_assistant)")
+
+    def _call_service(self, domain: str, service: str, entity_id: str) -> bool:
+        """Home Assistant 서비스 호출 (REST API)"""
+        if not self._available or not entity_id:
+            return False
+
+        import urllib.request
+        import urllib.error
+
+        url = f"{self._url}/api/services/{domain}/{service}"
+        data = json.dumps({"entity_id": entity_id}).encode('utf-8')
+
+        req = urllib.request.Request(url, data=data, method='POST')
+        req.add_header('Authorization', f'Bearer {self._token}')
+        req.add_header('Content-Type', 'application/json')
+
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if self.log:
+                    self.log.log_action("HA_SERVICE_CALL",
+                                        service=f"{domain}.{service}",
+                                        entity=entity_id,
+                                        status=resp.status)
+                return resp.status == 200
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
+            if self.log:
+                self.log.log_error(f"Home Assistant 호출 실패: {domain}.{service} → {e}")
+            return False
+
+    def turn_on_studio(self) -> dict:
+        """조명 + 카메라 전원 ON"""
+        results = {}
+        results['light'] = self._call_service('switch', 'turn_on', self._light_entity)
+        results['camera'] = self._call_service('switch', 'turn_on', self._camera_entity)
+        if self.log:
+            self.log.log_action("HA_STUDIO_ON", **results)
+        return results
+
+    def turn_off_studio(self) -> dict:
+        """조명 + 카메라 전원 OFF"""
+        results = {}
+        results['light'] = self._call_service('switch', 'turn_off', self._light_entity)
+        results['camera'] = self._call_service('switch', 'turn_off', self._camera_entity)
+        if self.log:
+            self.log.log_action("HA_STUDIO_OFF", **results)
+        return results
+
+    @property
+    def is_available(self) -> bool:
+        return self._available
+
+
+# =============================================================================
 # Google Calendar 연동
 # =============================================================================
 class CalendarSync:
@@ -1395,13 +1476,72 @@ class CalendarSync:
         # 기본값: 베이직
         return ('basic', self.PACKAGE_CONFIG['basic']['minutes'])
 
-    def get_current_session_info(self) -> tuple:
-        """현재 예약의 패키지 정보 반환 → (package_type, minutes)
+    def get_current_session_info(self) -> dict:
+        """현재 예약의 세션 정보 반환
 
-        캘린더 연동 실패 시 기본값(basic, 35분) 반환
+        Returns:
+            {
+                'package': 'basic' | 'premium',
+                'total_minutes': 35 | 50,
+                'remaining_minutes': int,  # 지금부터 종료까지 남은 분
+                'hard_end_time': datetime | None,  # 캘린더 기준 고정 종료 시각
+                'event_summary': str,
+            }
+
+        캘린더 연동 실패 시 remaining_minutes = total_minutes (풀타임 제공)
         """
         event = self.get_current_event()
-        return self.detect_package_from_event(event)
+        package_type, total_minutes = self.detect_package_from_event(event)
+
+        result = {
+            'package': package_type,
+            'total_minutes': total_minutes,
+            'remaining_minutes': total_minutes,
+            'hard_end_time': None,
+            'event_summary': '',
+        }
+
+        if event:
+            result['event_summary'] = event.get('summary', '')
+
+            # 캘린더 이벤트의 시작 시각에서 패키지 시간을 더한 값이 고정 종료 시각
+            start_info = event.get('start', {})
+            start_str = start_info.get('dateTime', '')
+
+            if start_str:
+                try:
+                    # ISO 8601 파싱 (타임존 포함)
+                    if '+' in start_str or start_str.endswith('Z'):
+                        # Python 3.7+ fromisoformat은 Z를 지원하지 않을 수 있음
+                        start_str_clean = start_str.replace('Z', '+00:00')
+                        event_start = datetime.fromisoformat(start_str_clean)
+                    else:
+                        event_start = datetime.fromisoformat(start_str)
+
+                    hard_end = event_start + timedelta(minutes=total_minutes)
+                    now = datetime.now(timezone.utc)
+
+                    # 로컬 타임존이 없으면 UTC로 가정
+                    if hard_end.tzinfo is None:
+                        hard_end = hard_end.replace(tzinfo=timezone.utc)
+
+                    remaining = (hard_end - now).total_seconds() / 60.0
+                    remaining = max(0, int(remaining))
+
+                    result['hard_end_time'] = hard_end
+                    result['remaining_minutes'] = remaining
+
+                    if self.log:
+                        self.log.log_action("CALENDAR_SESSION_CALC",
+                                            package=package_type,
+                                            event_start=str(event_start),
+                                            hard_end=str(hard_end),
+                                            remaining_min=remaining)
+                except (ValueError, TypeError) as e:
+                    if self.log:
+                        self.log.log_error(f"캘린더 시간 파싱 실패: {e}")
+
+        return result
 
 
 # =============================================================================
@@ -1409,16 +1549,19 @@ class CalendarSync:
 # =============================================================================
 class MainWindow(QMainWindow):
     def __init__(self, config: ConfigManager, actions: MacroActions,
-                 calendar: CalendarSync = None):
+                 calendar: CalendarSync = None,
+                 ha_controller: HomeAssistantController = None):
         super().__init__()
 
         self.config = config
         self.actions = actions
         self.calendar = calendar or CalendarSync()
+        self.ha = ha_controller
         self.current_worker = None
         self.session_timer = None
         self.current_package = "basic"
         self._session_minutes = 30
+        self._hard_end_time = None  # 캘린더 기준 고정 종료 시각
         self._current_state = STATE_IDLE
 
         self.gui_config = config.get('gui_settings', {})
@@ -1737,10 +1880,21 @@ class MainWindow(QMainWindow):
     def _on_start_clicked(self):
         """촬영 시작 버튼 → Google Calendar에서 패키지 자동 감지 → 확인 화면"""
         # Google Calendar에서 현재 예약 조회
-        package_type, minutes = self.calendar.get_current_session_info()
+        session = self.calendar.get_current_session_info()
+
+        package_type = session['package']
+        remaining = session['remaining_minutes']
+        self._hard_end_time = session['hard_end_time']
+
+        # 늦게 온 경우: 남은 시간이 0 이하면 촬영 불가
+        if self._hard_end_time and remaining <= 0:
+            QMessageBox.information(self, "예약 시간 초과",
+                                   "예약된 촬영 시간이 이미 종료되었습니다.\n다음 예약을 확인해 주세요.")
+            return
 
         self.current_package = package_type
-        self._session_minutes = minutes
+        # 캘린더 연동 시 남은 시간 사용, 미연동 시 전체 시간 사용
+        self._session_minutes = remaining if self._hard_end_time else session['total_minutes']
         self.confirm_time_label.setText(f"{self._session_minutes}")
 
         # 패키지 타입에 따라 뱃지 업데이트
@@ -1764,11 +1918,15 @@ class MainWindow(QMainWindow):
         self.switch_state(STATE_IDLE)
 
     def _on_confirm_start(self):
-        """촬영 시작 확인 → Lightroom 실행 + 타이머 시작"""
+        """촬영 시작 확인 → 조명 ON + Lightroom 실행 + 타이머 시작"""
         if self.current_worker is not None and self.current_worker.isRunning():
             return
 
         minutes = self._session_minutes
+
+        # Home Assistant: 조명 + 카메라 전원 ON (별도 스레드 → 테더링 블로킹 방지)
+        if self.ha and self.ha.is_available:
+            threading.Thread(target=self.ha.turn_on_studio, daemon=True).start()
 
         # SHOOTING 화면으로 전환
         self.switch_state(STATE_SHOOTING)
@@ -1802,7 +1960,11 @@ class MainWindow(QMainWindow):
         self.timer_sub_label.setText(f"⏰ {message}")
 
     def _on_session_ended(self):
-        """세션 종료 → EXPORT_READY 화면으로 전환"""
+        """세션 종료 → 조명 OFF + EXPORT_READY 화면으로 전환"""
+        # Home Assistant: 조명 + 카메라 전원 OFF (별도 스레드)
+        if self.ha and self.ha.is_available:
+            threading.Thread(target=self.ha.turn_off_studio, daemon=True).start()
+
         self.switch_state(STATE_EXPORT_READY)
 
     def _run_action_in_thread(self, func, action_name):
@@ -1843,11 +2005,12 @@ def main():
     win_controller = WindowsController(config, log_manager)
     actions = MacroActions(config, log_manager, win_controller)
     calendar = CalendarSync(log_manager)
+    ha_controller = HomeAssistantController(config, log_manager)
 
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
 
-    window = MainWindow(config, actions, calendar)
+    window = MainWindow(config, actions, calendar, ha_controller)
     window.show()
 
     sys.exit(app.exec())
